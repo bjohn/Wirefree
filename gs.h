@@ -24,56 +24,99 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <avr/pgmspace.h>
 #include <WString.h>
 
-#define MAX_SOCK_NUM 16
+typedef uint8_t SOCKET;
 
-typedef enum
-{
-  WF_OK = 0,
-  WF_CONNECT_ERROR = 1,
-  WF_PASSPHRASE_ERROR = 2,
-  WF_UNKNOWN = 255
-} tWFStatus;
+class SOCK_STATUS {
+public:
+  static const uint8_t CLOSED      = 0x00;
+  static const uint8_t INIT        = 0x01;
+  static const uint8_t LISTEN      = 0x02;
+  static const uint8_t ESTABLISHED = 0x03;
+  static const uint8_t CLOSE_WAIT  = 0x04;
+};
 
+class IPPROTO {
+public:
+  static const uint8_t TCP  = 6;
+};
+
+// command identifiers
+// config
 #define CMD_DISABLE_ECHO 0
+// wifi
 #define CMD_SET_WPA_PSK  1
 #define CMD_SET_SSID     2
+#define CMD_DISCONNECT   5
+#define CMD_GET_MAC_ADDR 8
+//network
 #define CMD_DISABLE_DHCP 3
 #define CMD_ENABLE_DHCP  4
-#define CMD_DISCONNECT   5
 #define CMD_LISTEN       6
+#define CMD_TCP_CONN     7
+#define CMD_DNS_LOOKUP   9
+#define CMD_CLOSE_CONN   10
 
-#define HTTP_REQ_NONE     0
-#define HTTP_REQ_GET_ROOT 1
-#define HTTP_REQ_UNKNOWN  2
+// device operation modes
+#define DEV_OP_MODE_COMMAND 0
+#define DEV_OP_MODE_DATA    1
+#define DEV_OP_MODE_DATA_RX 2
 
+// device wireless connection state
+#define DEV_CONN_ST_DISCONNECTED 0
+#define DEV_CONN_ST_CONNECTED    1
+
+// connection ID
+#define INVALID_CID 255
+
+// wireless connection params
 typedef struct _GS_PROFILE {
-	int dhcp_state;
-	int mode;
-	String security_key;
 	String ssid;
+	String security_key;
 } GS_PROFILE;
+
+typedef struct _SOCK_TABLE {
+	uint8_t status;
+	uint8_t protocol;
+	uint16_t port;
+	uint8_t cid;
+} SOCK_TABLE;
 
 class GSClass {
 public:
-	uint8_t init();
+	uint8_t init(void (*rx_data_handler)(String data));
 	void configure(GS_PROFILE* prof);
 	uint8_t connect();
-	uint8_t listen(uint16_t port);
-	uint8_t socket_status(uint8_t);
+	uint8_t connected();
 	void process();
+	uint8_t connect_socket(String ip, String port);
+	String dns_lookup(String url);
+	void send_data(String data);
+	String get_dev_id();
+
+	void configSocket(SOCKET s, uint8_t protocol, uint16_t port);
+	void execSocketCmd(SOCKET s, uint8_t cmd);
+	uint8_t readSocketStatus(SOCKET s);
+	uint8_t isDataOnSock(SOCKET s);
+	uint16_t readData(SOCKET s, uint8_t* buf, uint16_t len);
 
 private:
-	uint8_t dhcp_state;
-	uint8_t mode;
 	String security_key;
 	String ssid;
-
 	uint8_t serv_cid;
 	uint8_t client_cid;
-
 	uint8_t dev_mode;
+	String ip;
+	String port;
+	uint8_t connection_state;
+	String dev_id;
+	String dns_url_ip;
+	uint8_t tx_done;
 
-	uint8_t http_req_type;
+	SOCK_TABLE sock_table[4];
+	uint8_t socket_num;
+	SOCKET dataOnSock;
+
+	void (*rx_data_handler)(String data);
 
 	String readline(void);
 	uint8_t send_cmd(uint8_t cmd);
@@ -81,7 +124,6 @@ private:
 	uint8_t send_cmd_w_resp(uint8_t cmd);
 	void parse_cmd(String buf);
 	void parse_data(String buf);
-	void send_http_resp();
 };
 
 extern GSClass GS;

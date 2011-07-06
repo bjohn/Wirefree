@@ -21,28 +21,32 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #ifndef _wirefree_h_
 #define _wirefree_h_
 
+#include <avr/pgmspace.h>
+#include <WString.h>
+
 #include "Client.h"
 #include "Server.h"
 
-#define MAX_SOCK_NUM 16
+#define MAX_SOCK_NUM 4
 
 typedef struct _WIFI_PROFILE {
-	int dhcp_state;
-	int mode;
-	String security_key;
 	String ssid;
+	String security_key;
 } WIFI_PROFILE;
 
 class Wirefree {
 private:
 public:
-  static uint8_t _state[MAX_SOCK_NUM];
   static uint16_t _server_port[MAX_SOCK_NUM];
-  void begin(uint8_t *, WIFI_PROFILE*);
-  void begin(uint8_t *, uint8_t *, WIFI_PROFILE*);
-  void begin(uint8_t *, uint8_t *, uint8_t *, WIFI_PROFILE*);
+
+  void begin(WIFI_PROFILE*, void (*rxDataHndlr)(String data));
 
   void process();
+  uint8_t connected();
+  uint8_t socketOpen(String url, String port);
+
+  void sendDeviceID();
+  void sendResponse(String data);
 
   friend class Client;
   friend class Server;

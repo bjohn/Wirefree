@@ -18,14 +18,16 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
-extern "C" {
-#include "string.h"
-}
+#include "gs.h"
+#include "socket.h"
+
+//extern "C" {
+//#include "string.h"
+//}
 
 #include "Wirefree.h"
 #include "Client.h"
 #include "Server.h"
-#include "socket.h"
 
 Server::Server(uint16_t port)
 {
@@ -34,45 +36,96 @@ Server::Server(uint16_t port)
 
 void Server::begin()
 {
-	for (int sock = 0; sock < MAX_SOCK_NUM; sock++) {
-		Client client(sock);
-		if (client.status() == 0) {
-			Sock.listen(_port);
-			Wirefree::_server_port[sock] = _port;
-			break;
-		}
-	}
+  for (int sock = 0; sock < MAX_SOCK_NUM; sock++) {
+    Client client(sock);
+    if (client.status() == SOCK_STATUS::CLOSED) {
+      socket(sock, IPPROTO::TCP, _port, 0);
+      listen(sock);
+      Wirefree::_server_port[sock] = _port;
+      break;
+    }
+  }  
+}
+
+void Server::write(uint8_t b)
+{
+}
+
+void Server::write(const char *str)
+{
+}
+
+void Server::write(const uint8_t *buffer, size_t size)
+{
 }
 
 void Server::accept()
 {
+  int listening = 0;
+
+  for (int sock = 0; sock < MAX_SOCK_NUM; sock++) {
+    Client client(sock);
+
+    if (Wirefree::_server_port[sock] == _port) {
+      if (client.status() == SOCK_STATUS::LISTEN) {
+        listening = 1;
+      } 
+      //else if (client.status() == SnSR::CLOSE_WAIT && !client.available()) {
+      //  client.stop();
+      //}
+    } 
+  }
+
+  if (!listening) {
+    begin();
+  }
 }
 
 Client Server::available()
 {
-	for (int sock = 0; sock < MAX_SOCK_NUM; sock++) {
-		Client client(sock);
-		if (Wirefree::_server_port[sock] == _port &&
-				(client.status() == 2)) {
-			if (client.available()) {
-				// XXX: don't always pick the lowest numbered socket.
-				return client;
-			}
-		}
-	}
+    GS.process();
 
-	return Client(MAX_SOCK_NUM);
+  accept();
+
+  for (int sock = 0; sock < MAX_SOCK_NUM; sock++) {
+    Client client(sock);
+    if (/*Wirefree::_server_port[sock] == _port &&*/
+        (client.status() == SOCK_STATUS::ESTABLISHED ||
+         client.status() == SOCK_STATUS::CLOSE_WAIT))
+    {
+      if (client.available()) {
+        // XXX: don't always pick the lowest numbered socket.
+        return client;
+      }
+    }
+  }
+
+  return Client(MAX_SOCK_NUM);
 }
 
+#if 0
 void Server::write(uint8_t b) 
 {
+  write(&b, 1);
 }
 
 void Server::write(const char *str) 
 {
+  write((const uint8_t *)str, strlen(str));
 }
 
 void Server::write(const uint8_t *buffer, size_t size) 
 {
+  accept();
+
+  for (int sock = 0; sock < MAX_SOCK_NUM; sock++) {
+    Client client(sock);
+
+    if (EthernetClass::_server_port[sock] == _port &&
+      client.status() == SnSR::ESTABLISHED) {
+      client.write(buffer, size);
+    }
+  }
 }
+#endif
 

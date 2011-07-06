@@ -39,5 +39,5 @@ public:
   virtual void write(const uint8_t *buf, size_t size);
 };
 
-#endif// _server_h_
+#endif // _server_h_
 

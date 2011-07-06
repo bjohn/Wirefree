@@ -29,10 +29,12 @@ class Client : public Stream {
 public:
   Client();
   Client(uint8_t);
-  Client(uint8_t *, uint16_t);
+  //Client(uint8_t *, uint16_t);
 
   uint8_t status();
-  uint8_t connect();
+
+
+  //uint8_t connect();
   virtual void write(uint8_t);
   virtual void write(const char *str);
   virtual void write(const uint8_t *buf, size_t size);
@@ -40,11 +42,13 @@ public:
   virtual int read();
   virtual int peek();
   virtual void flush();
-  void stop();
+  operator bool();
   uint8_t connected();
+  void stop();
+#if 0
   uint8_t operator==(int);
   uint8_t operator!=(int);
-  operator bool();
+#endif
 
   friend class Server;
 
@@ -55,5 +59,5 @@ private:
   uint16_t _port;
 };
 
-#endif //_client_h_
+#endif // _client_h_
 

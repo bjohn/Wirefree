@@ -23,51 +23,62 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include <WProgram.h>
 
-uint8_t Wirefree::_state[MAX_SOCK_NUM] = {
-		0, 0, 0, 0 };
 uint16_t Wirefree::_server_port[MAX_SOCK_NUM] = {
-		0, 0, 0, 0 };
+  0, 0, 0, 0 };
 
-void Wirefree::begin(uint8_t *ip, WIFI_PROFILE* w_prof)
+void Wirefree::begin(WIFI_PROFILE* w_prof, void (*rxDataHndlr)(String data))
 {
-	uint8_t gateway[4];
-	gateway[0] = ip[0];
-	gateway[1] = ip[1];
-	gateway[2] = ip[2];
-	gateway[3] = 1;
-	begin(ip, gateway, w_prof);
-}
-
-void Wirefree::begin(uint8_t *ip, uint8_t *gateway, WIFI_PROFILE* w_prof)
-{
-	uint8_t subnet[] = { 255, 255, 255, 0 };
-	begin(ip, gateway, subnet, w_prof);
-}
-
-void Wirefree::begin(uint8_t *ip, uint8_t *gateway, uint8_t *subnet, WIFI_PROFILE* w_prof)
-{
-	//GS.setIPAddress(ip);
-	//GS.setGatewayIp(gateway);
-	//GS.setSubnetMask(subnet);
-
 	// initialize device
-	if (!GS.init()) {
+	if (!GS.init(rxDataHndlr)) {
 		return;
 	}
 
 	// configure params
 	GS.configure((GS_PROFILE*)w_prof);
 
-	// initiate connection
+	// initiate wireless connection
 	while (!GS.connect());
-
-	// DEBUG
-	GS.listen(80);
 }
 
 void Wirefree::process()
 {
 	GS.process();
+}
+
+uint8_t Wirefree::socketOpen(String url, String port)
+{
+	String ip;
+
+	// get IP address from URL
+	if ((ip = GS.dns_lookup(url)) == "0.0.0.0") {
+		return 0;
+	}
+
+	// open socket connection
+	if (!GS.connect_socket("192.168.0.100", "32000")) {
+		return 0;
+	}
+
+	return 1;
+}
+
+uint8_t Wirefree::connected()
+{
+	return GS.connected();
+}
+
+void Wirefree::sendDeviceID()
+{
+	String dev_id_str = "ID:" + GS.get_dev_id();
+
+	GS.send_data(dev_id_str);
+}
+
+void Wirefree::sendResponse(String data)
+{
+	String resp_str = "TIME:" + data + ":" + String(millis());
+
+	GS.send_data(resp_str);
 }
 
 Wirefree Wireless;

@@ -27,7 +27,54 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 GSClass GS;
 
-uint8_t GSClass::init(void)
+struct _cmd_tbl {
+	String cmd_str;
+} cmd_tbl[] = {
+		{"ATE0"},
+		{"AT+WWPA="},
+		{"AT+WA="},
+		{"AT+NDHCP=0"},
+		{"AT+NDHCP=1"},
+		{"AT+WD"},
+		{"AT+NSTCP=80"},
+		{"AT+NCTCP="},
+		{"AT+NMAC=?"},
+		{"AT+DNSLOOKUP="},
+		{"AT+NCLOSE="},
+};
+
+uint8_t hex_to_int(char c)
+{
+	uint8_t val = 0;
+
+	if (c >= '0' && c <= '9') {
+		val = c - '0';
+	}
+	else if (c >= 'A' && c <= 'F') {
+		val = c - 'A' + 10;
+	}
+	else if (c >= 'a' && c <= 'f') {
+		val = c - 'a' + 10;
+	}
+
+	return val;
+}
+
+char int_to_hex(uint8_t c)
+{
+	char val = '0';
+
+	if (c >= 0 && c <= 9) {
+		val = c + '0';
+	}
+	else if (c >= 10 && c <= 15) {
+		val = c + 'A' - 10;
+	}
+
+	return val;
+}
+
+uint8_t GSClass::init(void (*rx_data_hndlr)(String data))
 {
 	Serial.begin(9600);
 	delay(1000);
@@ -36,59 +83,30 @@ uint8_t GSClass::init(void)
 	Serial.println();
 	delay(1000);
 
-	dev_mode = 0;
+	dev_mode = DEV_OP_MODE_COMMAND;
+	connection_state = DEV_CONN_ST_DISCONNECTED;
+	dataOnSock = 255;
+
+	this->rx_data_handler = rx_data_hndlr;
+
+	for (int i = 0; i < 4; i++) {
+	    this->sock_table[i].cid = 0;
+	    this->sock_table[i].port = 0;
+	    this->sock_table[i].protocol = 0;
+	    this->sock_table[i].status = 0;
+	}
 
 	// disable echo
 	if (!send_cmd_w_resp(CMD_DISABLE_ECHO)) {
 		return 0;
 	}
 
+	// get device ID
+	if (!send_cmd_w_resp(CMD_GET_MAC_ADDR)) {
+		return 0;
+	}
+
 	return 1;
-}
-
-typedef struct _cmd_tbl {
-	String cmd_str;
-} CMD_TBL;
-
-CMD_TBL cmd_tbl[] = {
-		{"ATE0"},
-		{"AT+WWPA="},
-		{"AT+WA="},
-		{"AT+NDHCP=0"},
-		{"AT+NDHCP=1"},
-		{"AT+WD"},
-		{"AT+NSTCP=80"},
-};
-
-uint8_t hex_to_int(char c)
-{
-    uint8_t val = 0;
-
-    if (c >= '0' && c <= '9') {
-        val = c - '0';
-    }
-    else if (c >= 'A' && c <= 'F') {
-        val = c - 'A' + 10;
-    }
-    else if (c >= 'a' && c <= 'f') {
-        val = c - 'a' + 10;
-    }
-
-    return val;
-}
-
-char int_to_hex(uint8_t c)
-{
-    char val = '0';
-
-    if (c >= 0 && c <= 9) {
-        val = c + '0';
-    }
-    else if (c >= 10 && c <= 15) {
-        val = c + 'A' - 10;
-    }
-
-    return val;
 }
 
 uint8_t GSClass::send_cmd(uint8_t cmd)
@@ -101,6 +119,7 @@ uint8_t GSClass::send_cmd(uint8_t cmd)
 	case CMD_DISCONNECT:
 	case CMD_ENABLE_DHCP:
 	case CMD_LISTEN:
+	case CMD_GET_MAC_ADDR:
 	{
 		Serial.println(cmd_tbl[cmd].cmd_str);
 		break;
@@ -115,6 +134,28 @@ uint8_t GSClass::send_cmd(uint8_t cmd)
 	{
 		String cmd_buf = cmd_tbl[cmd].cmd_str + this->ssid;
 		Serial.println(cmd_buf);
+		break;
+	}
+	case CMD_TCP_CONN:
+	{
+		String cmd_buf = cmd_tbl[cmd].cmd_str + this->ip + "," + this->port;
+		Serial.println(cmd_buf);
+		break;
+	}
+	case CMD_DNS_LOOKUP:
+	{
+		String cmd_buf = cmd_tbl[cmd].cmd_str + this->dns_url_ip;
+		Serial.println(cmd_buf);
+		break;
+	}
+	case CMD_CLOSE_CONN:
+	{
+		if (this->sock_table[socket_num].status != SOCK_STATUS::CLOSED) {
+			String cmd_buf = cmd_tbl[cmd].cmd_str + String(this->sock_table[socket_num].cid);
+			Serial.println(cmd_buf);
+		} else {
+			return 0;
+		}
 		break;
 	}
 	default:
@@ -157,6 +198,61 @@ uint8_t GSClass::parse_resp(uint8_t cmd)
 			if (buf.startsWith("CONNECT")) {
 				/* got CONNECT */
 				serv_cid = hex_to_int(buf[8]);
+				this->sock_table[socket_num].cid = hex_to_int(buf[8]);
+				this->sock_table[socket_num].status = SOCK_STATUS::LISTEN;
+			} else if (buf == "OK") {
+				/* got OK */
+				ret = 1;
+				resp_done = 1;
+			} else if (buf.startsWith("ERROR")) {
+				/* got ERROR */
+				serv_cid = INVALID_CID;
+				this->sock_table[socket_num].cid = 0;
+				this->sock_table[socket_num].status = SOCK_STATUS::CLOSED;
+				ret = 0;
+				resp_done = 1;
+			}
+			break;
+		}
+		case CMD_TCP_CONN:
+		{
+			if (buf.startsWith("CONNECT")) {
+				/* got CONNECT */
+				client_cid = hex_to_int(buf[8]);
+			} else if (buf == "OK") {
+				/* got OK */
+				ret = 1;
+				resp_done = 1;
+			} else if (buf.startsWith("ERROR")) {
+				/* got ERROR */
+				client_cid = INVALID_CID;
+				ret = 0;
+				resp_done = 1;
+			}
+			break;
+		}
+		case CMD_GET_MAC_ADDR:
+		{
+			if (buf.startsWith("00")) {
+				/* got MAC addr */
+				dev_id = buf;
+			} else if (buf == "OK") {
+				/* got OK */
+				ret = 1;
+				resp_done = 1;
+			} else if (buf.startsWith("ERROR")) {
+				/* got ERROR */
+				dev_id = "ff:ff:ff:ff:ff:ff";
+				ret = 0;
+				resp_done = 1;
+			}
+			break;
+		}
+		case CMD_DNS_LOOKUP:
+		{
+			if (buf.startsWith("IP:")) {
+				/* got IP address */
+				dns_url_ip = buf.substring(3);
 			} else if (buf == "OK") {
 				/* got OK */
 				ret = 1;
@@ -167,6 +263,25 @@ uint8_t GSClass::parse_resp(uint8_t cmd)
 				resp_done = 1;
 			}
 			break;
+		}
+		case CMD_CLOSE_CONN:
+		{
+		    if (buf == "OK") {
+		        /* got OK */
+		        ret = 1;
+		        resp_done = 1;
+
+		        /* clean up socket */
+		        this->sock_table[socket_num].status = 0;
+		        this->sock_table[socket_num].cid = 0;
+		        this->sock_table[socket_num].port = 0;
+		        this->sock_table[socket_num].protocol = 0;
+		    } else if (buf.startsWith("ERROR")) {
+		        /* got ERROR */
+		        ret = 0;
+		        resp_done = 1;
+		    }
+		    break;
 		}
 		default:
 			break;
@@ -188,16 +303,8 @@ uint8_t GSClass::send_cmd_w_resp(uint8_t cmd)
 void GSClass::configure(GS_PROFILE *prof)
 {
 	// configure params
-
-	// configure DHCP state
-	// configure mode
-	// configure security
-	// configure SSID
-	dhcp_state = prof->dhcp_state;
-	mode = prof->mode;
 	this->ssid = prof->ssid;
 	this->security_key = prof->security_key;
-
 }
 
 uint8_t GSClass::connect()
@@ -223,7 +330,14 @@ uint8_t GSClass::connect()
 		return 0;
 	}
 
+	connection_state = DEV_CONN_ST_CONNECTED;
+
 	return 1;
+}
+
+uint8_t GSClass::connected()
+{
+	return connection_state;
 }
 
 String GSClass::readline(void)
@@ -261,22 +375,158 @@ String GSClass::readline(void)
 	return strBuf;
 }
 
-uint8_t GSClass::listen(uint16_t port)
+uint16_t GSClass::readData(SOCKET s, uint8_t* buf, uint16_t len)
 {
-	// FIXME : use the input argument
+    uint16_t dataLen = 0;
+    uint8_t tmp1, tmp2;
 
-	if (!send_cmd_w_resp(CMD_LISTEN)) {
-		return 0;
-	}
+    if (dev_mode == DEV_OP_MODE_DATA_RX) {
+    if (!Serial.available())
+        return 0;
+
+    while(dataLen < len) {
+        if (Serial.available()) {
+            tmp1 = Serial.read();
+
+            if (tmp1 == 0x1b) {
+                // escape seq
+
+                /* read in escape sequence */
+                while(1) {
+                    if (Serial.available()) {
+                        tmp2 = Serial.read();
+                        break;
+                    }
+                }
+
+                if (tmp2 == 0x45) {
+                    /* data end, switch to command mode */
+                    dev_mode = DEV_OP_MODE_COMMAND;
+
+                    /* clear flag */
+                    dataOnSock = 255;
+
+                    break;
+                } else {
+                    if (dataLen < (len-2)) {
+                        buf[dataLen++] = tmp1;
+                        buf[dataLen++] = tmp2;
+                    } else {
+                        buf[dataLen++] = tmp1;
+
+                        /* FIXME : throw away second byte ? */
+                    }
+                }
+            } else {
+                // data
+                buf[dataLen] = tmp1;
+                dataLen++;
+            }
+        }
+    }
+    }
+
+    return dataLen;
 }
 
-uint8_t GSClass::socket_status(uint8_t port)
+void GSClass::process()
 {
-	// FIXME : dummy, to be implemented
+    String strBuf;
+    char inByte;
+    uint8_t processDone = 0;
 
-	return 0;
+    if (!Serial.available())
+        return;
+
+    while (!processDone) {
+        if (dev_mode == DEV_OP_MODE_COMMAND) {
+            while (1) {
+                if (Serial.available()) {
+                    inByte = Serial.read();
+
+                    if (inByte == 0x1b) {
+                        // escape seq
+
+                        // switch mode
+                        dev_mode = DEV_OP_MODE_DATA;
+                        break;
+                    } else {
+                        // command string
+                        if ((inByte == '\r') || (inByte == '\n')) {
+                            // throw away
+                            if ((strBuf.length() > 0) && (inByte == '\n'))
+                            {
+                                // parse command
+                                parse_cmd(strBuf);
+                                processDone = 1;
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            strBuf += inByte;
+                        }
+                    }
+                }
+            }
+        } else if (dev_mode == DEV_OP_MODE_DATA) {
+            /* data mode */
+            while(1) {
+                if (Serial.available()) {
+                    inByte = Serial.read();
+
+                    if (inByte == 0x53) {
+                        /* data start, switch to data RX mode */
+                        dev_mode = DEV_OP_MODE_DATA_RX;
+
+                        /* read in CID */
+                        while(1) {
+                            if (Serial.available()) {
+                                inByte = Serial.read();
+                                break;
+                            }
+                        }
+
+                        // find socket from CID
+                        for (SOCKET new_sock = 0; new_sock < 4; new_sock++) {
+                            if (this->sock_table[new_sock].cid == hex_to_int(inByte)) {
+                                dataOnSock = new_sock;
+                            }
+                        }
+
+                        break;
+                    } else if (inByte == 0x45) {
+                        /* data end, switch to command mode */
+                        dev_mode = DEV_OP_MODE_COMMAND;
+                        processDone = 1;
+                        break;
+                    } else if (inByte == 0x4f) {
+                        /* data mode ok */
+                        tx_done = 1;
+                        dev_mode = DEV_OP_MODE_COMMAND;
+                        processDone = 1;
+                        break;
+                    } else if (inByte == 0x46) {
+                        /* TX failed */
+                        tx_done = 1;
+                        dev_mode = DEV_OP_MODE_COMMAND;
+                        processDone = 1;
+                        break;
+                    } else {
+                        /* unknown */
+                        dev_mode = DEV_OP_MODE_COMMAND;
+                        processDone = 1;
+                        break;
+                    }
+                }
+            }
+        } else if (dev_mode ==  DEV_OP_MODE_DATA_RX) {
+            processDone = 1;
+        }
+    }
 }
 
+#if 0
 void GSClass::process()
 {
 	String strBuf;
@@ -284,10 +534,10 @@ void GSClass::process()
 	uint8_t processDone = 0;
 
 	if (!Serial.available())
-		return;
+		return 0;
 
 	while (!processDone) {
-		if (dev_mode == 0) {
+		if (dev_mode == DEV_OP_MODE_COMMAND) {
 			while (1) {
 				if (Serial.available()) {
 					inByte = Serial.read();
@@ -296,7 +546,7 @@ void GSClass::process()
 						// escape seq
 
 						// switch mode
-						dev_mode = 1;
+						dev_mode = DEV_OP_MODE_DATA;
 						break;
 					} else {
 						// command string
@@ -317,7 +567,7 @@ void GSClass::process()
 					}
 				}
 			}
-		} else if (dev_mode == 1) {
+		} else if (dev_mode == DEV_OP_MODE_DATA) {
 			/* data mode */
 			while(1) {
 				if (Serial.available()) {
@@ -325,33 +575,41 @@ void GSClass::process()
 
 					if (inByte == 0x53) {
 						/* data start, switch to data RX mode */
-						dev_mode = 2;
+						dev_mode = DEV_OP_MODE_DATA_RX;
 						break;
 					} else if (inByte == 0x45) {
 						/* data end, switch to command mode */
-						dev_mode = 0;
+						dev_mode = DEV_OP_MODE_COMMAND;
 
 						/* send response if required */
-						send_http_resp();
 
 						processDone = 1;
 						break;
 					} else if (inByte == 0x4f) {
 						/* data mode ok */
-						dev_mode = 0;
+						tx_done = 1;
+						dev_mode = DEV_OP_MODE_COMMAND;
+						processDone = 1;
+						break;
+					} else if (inByte == 0x46) {
+						/* TX failed */
+						tx_done = 1;
+
+						dev_mode = DEV_OP_MODE_COMMAND;
+						processDone = 1;
 						break;
 					} else {
 						/* unknown */
-						dev_mode = 0;
+						dev_mode = DEV_OP_MODE_COMMAND;
+						processDone = 1;
 						break;
 					}
 				}
 			}
-		} else if (dev_mode == 2) {
+		} else if (dev_mode == DEV_OP_MODE_DATA_RX) {
 			/* data RX mode */
-			http_req_type = HTTP_REQ_NONE;
 
-			while (dev_mode == 2) {
+			while (dev_mode == DEV_OP_MODE_DATA_RX) {
 				String dataBuf;
 
 				while (1) {
@@ -359,7 +617,7 @@ void GSClass::process()
 						inByte = Serial.read();
 						if (inByte == 0x1b) {
 							/* switch mode */
-							dev_mode = 1;
+							dev_mode = DEV_OP_MODE_DATA;
 							break;
 						} else {
 							if ((inByte == '\r') || (inByte == '\n')) {
@@ -382,6 +640,7 @@ void GSClass::process()
 		}
 	}
 }
+#endif
 
 void GSClass::parse_cmd(String buf)
 {
@@ -392,59 +651,104 @@ void GSClass::parse_cmd(String buf)
 			/* client connected */
 			client_cid = hex_to_int(buf[10]);
 		}
+
+		for (int sock = 0; sock < 4; sock++) {
+			if ((this->sock_table[sock].status == SOCK_STATUS::LISTEN) &&
+				(this->sock_table[sock].cid == hex_to_int(buf[8])))
+			{
+				for (int new_sock = 0; new_sock < 4; new_sock++) {
+					if (this->sock_table[new_sock].status == SOCK_STATUS::CLOSED) {
+						this->sock_table[new_sock].cid = hex_to_int(buf[10]);
+						this->sock_table[new_sock].port = this->sock_table[sock].port;
+						this->sock_table[new_sock].protocol = this->sock_table[sock].protocol;
+						this->sock_table[new_sock].status = SOCK_STATUS::ESTABLISHED;
+					}
+				}
+			}
+		}
+
 	} else if (buf.startsWith("DISCONNECT")) {
 		/* got disconnect */
+
+		// FIXME : need to handle socket disconnection
+	} else if (buf == "Disassociation Event") {
+		/* disconnected from AP */
+		connection_state = DEV_CONN_ST_DISCONNECTED;
 	}
 }
 
 void GSClass::parse_data(String buf)
 {
-	if (buf.startsWith("GET", 1)) {
-		if (buf.startsWith("/ ", 5)) {
-			digitalWrite(3, LOW);
-			http_req_type = HTTP_REQ_GET_ROOT;
-		} else {
-			http_req_type = HTTP_REQ_UNKNOWN;
-		}
+	this->rx_data_handler(buf);
+}
+
+uint8_t GSClass::connect_socket(String ip, String port)
+{
+	this->ip = ip;
+	this->port = port;
+
+	if (!send_cmd_w_resp(CMD_TCP_CONN)) {
+		return 0;
+	}
+
+	return 1;
+}
+
+void GSClass::send_data(String data)
+{
+	tx_done = 0;
+
+	Serial.print((uint8_t)0x1b);    // data start
+	Serial.print((uint8_t)0x53);
+	Serial.print((uint8_t)int_to_hex(this->client_cid));  // connection ID
+	Serial.println(data);           // data to send
+	Serial.print((uint8_t)0x1b);    // data end
+	Serial.print((uint8_t)0x45);
+
+	while(!tx_done) {
+		process();
 	}
 }
 
-char data_st[3] = { 0x1b, 0x53, 0x00 };
-char data_end[2] = { 0x1b, 0x43 };
-char http_resp[] =  "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
-					"<html><meta name=\"viewport\" content=\"initial-scale=1.0, user-scalable=no\""
-					"<center><h1>Hello World</h1><br /><h1>from Hydrogen</h1><br />"
-					"<a href=\"1\">Page 1</a></center></html>";
-
-char http_img_resp[] =  "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n";
-
-void GSClass::send_http_resp()
+String GSClass::dns_lookup(String url)
 {
-	uint8_t i;
+	this->dns_url_ip = url;
 
-	switch(http_req_type) {
-	case HTTP_REQ_GET_ROOT:
-		data_st[2] = int_to_hex(client_cid);
-		for (i = 0; i < 3; i++) {
-			Serial.print(data_st[i]);
-		}
-		Serial.println(http_resp);
-		for (i = 0; i < 2; i++) {
-			Serial.print(data_end[i]);
-		}
-		break;
-	case HTTP_REQ_UNKNOWN:
-		data_st[2] = int_to_hex(client_cid);
-		for (i = 0; i < 3; i++) {
-			Serial.print(data_st[i]);
-		}
-		Serial.println(http_img_resp);
-		for (i = 0; i < 2; i++) {
-			Serial.print(data_end[i]);
-		}
-		break;
-	default:
-		break;
+	if (!send_cmd_w_resp(CMD_DNS_LOOKUP)) {
+		return String("0.0.0.0");
 	}
+
+	return this->dns_url_ip;
+}
+
+String GSClass::get_dev_id()
+{
+	return dev_id;
+}
+
+void GSClass::configSocket(SOCKET s, uint8_t protocol, uint16_t port)
+{
+	this->sock_table[s].protocol = protocol;
+	this->sock_table[s].port = port;
+	this->sock_table[s].status = SOCK_STATUS::INIT;
+}
+
+void GSClass::execSocketCmd(SOCKET s, uint8_t cmd)
+{
+	this->socket_num = s;
+
+	if (!send_cmd_w_resp(cmd)) {
+	    //digitalWrite(6, LOW);
+	}
+}
+
+uint8_t GSClass::readSocketStatus(SOCKET s)
+{
+	return this->sock_table[s].status;
+}
+
+uint8_t GSClass::isDataOnSock(SOCKET s)
+{
+    return (s == dataOnSock);
 }
 
