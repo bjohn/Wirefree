@@ -151,7 +151,7 @@ uint8_t GSClass::send_cmd(uint8_t cmd)
 	case CMD_CLOSE_CONN:
 	{
 		if (this->sock_table[socket_num].status != SOCK_STATUS::CLOSED) {
-			String cmd_buf = cmd_tbl[cmd].cmd_str + String(this->sock_table[socket_num].cid);
+			String cmd_buf = cmd_tbl[cmd].cmd_str + String((unsigned int)this->sock_table[socket_num].cid);
 			Serial.println(cmd_buf);
 		} else {
 			return 0;
