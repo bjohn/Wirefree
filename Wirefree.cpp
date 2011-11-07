@@ -26,10 +26,54 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 uint16_t Wirefree::_server_port[MAX_SOCK_NUM] = {
   0, 0, 0, 0 };
 
+void Wirefree::initLED()
+{
+	unsigned char i;
+	
+	pinMode(6, OUTPUT);         // RED
+	pinMode(5, OUTPUT);         // GREEN
+	pinMode(3, OUTPUT);         // BLUE
+	digitalWrite(6, HIGH);
+	digitalWrite(5, HIGH);
+	digitalWrite(3, HIGH);
+	
+	for (i = 0; i < 3; i++) {
+		digitalWrite(((i==0)?6:((i==1)?5:((i==2)?3:6))), LOW);
+		delay(1000);
+		digitalWrite(6, HIGH);
+		digitalWrite(5, HIGH);
+		digitalWrite(3, HIGH);
+	}
+
+}
+
+void Wirefree::setLED(int color)
+{
+	// Clear LED
+	digitalWrite(3, HIGH);
+	digitalWrite(5, HIGH);
+	digitalWrite(6, HIGH);
+	
+	if (color == LED_BLUE){
+		digitalWrite(3, LOW);   
+	} else if (color == LED_GREEN){
+		digitalWrite(5, LOW);   
+	} else if (color == LED_RED){
+		digitalWrite(6, LOW);   
+	} else {
+	}
+	
+}
+
+
 void Wirefree::begin(WIFI_PROFILE* w_prof, void (*rxDataHndlr)(String data))
 {
+	// setup LEDs
+	initLED();
+	
 	// initialize device
 	if (!GS.init(rxDataHndlr)) {
+		setLED(LED_RED);
 		return;
 	}
 
@@ -38,6 +82,8 @@ void Wirefree::begin(WIFI_PROFILE* w_prof, void (*rxDataHndlr)(String data))
 
 	// initiate wireless connection
 	while (!GS.connect());
+	
+	setLED(LED_GREEN);
 }
 
 void Wirefree::process()

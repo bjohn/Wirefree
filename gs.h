@@ -55,6 +55,7 @@ public:
 #define CMD_TCP_CONN     7
 #define CMD_DNS_LOOKUP   9
 #define CMD_CLOSE_CONN   10
+#define CMD_NETWORK_SET  11
 
 // device operation modes
 #define DEV_OP_MODE_COMMAND 0
@@ -68,10 +69,24 @@ public:
 // connection ID
 #define INVALID_CID 255
 
+// LED Color definitions
+#define LED_BLUE        0
+#define LED_GREEN       1
+#define LED_RED         2
+#define LED_CYAN        3
+#define LED_MAGENTA     4
+#define LED_YELLOW      5
+#define LED_WHITE       6
+#define LED_OFF         7
+
+
 // wireless connection params
 typedef struct _GS_PROFILE {
 	String ssid;
 	String security_key;
+	String ip;
+	String subnet;
+	String gateway;
 } GS_PROFILE;
 
 typedef struct _SOCK_TABLE {
@@ -91,6 +106,8 @@ public:
 	uint8_t connect_socket(String ip, String port);
 	String dns_lookup(String url);
 	void send_data(String data);
+	void esc_seq_start();
+	void esc_seq_stop();
 	String get_dev_id();
 
 	void configSocket(SOCKET s, uint8_t protocol, uint16_t port);
@@ -98,10 +115,16 @@ public:
 	uint8_t readSocketStatus(SOCKET s);
 	uint8_t isDataOnSock(SOCKET s);
 	uint16_t readData(SOCKET s, uint8_t* buf, uint16_t len);
+	uint16_t writeData(SOCKET s, const uint8_t*  buf, uint16_t  len);
+	
+	static const uint16_t SSIZE = 2048; // Max Tx buffer siz
 
 private:
 	String security_key;
 	String ssid;
+	String local_ip;
+	String subnet;
+	String gateway;
 	uint8_t serv_cid;
 	uint8_t client_cid;
 	uint8_t dev_mode;

@@ -5,7 +5,6 @@ Jul 05 2011 - Initial version of WebServer code.
             - This is an interim fix until the code that is compatible with the
               Ethernet library is fully working
 
+Nov 07 2011 - Added WebServer & WebClient sketches
+	    
 
-Oct 25 2011 - test push to ethernet library
-
-Oct 28 2011 - Test push to the ethernet library

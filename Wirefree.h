@@ -32,11 +32,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 typedef struct _WIFI_PROFILE {
 	String ssid;
 	String security_key;
+	String ip;
+	String subnet;
+	String gateway;
 } WIFI_PROFILE;
 
 class Wirefree {
 private:
+	void initLED();
 public:
+	void setLED(int color);
   static uint16_t _server_port[MAX_SOCK_NUM];
 
   void begin(WIFI_PROFILE*, void (*rxDataHndlr)(String data));

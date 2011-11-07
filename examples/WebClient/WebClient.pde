@@ -1,5 +1,5 @@
 /*
-WebClient.pde - Web client Arduino processing sketch
+WebClient.pde - Web Client Arduino processing sketch
 
 Copyright (C) 2011 DIYSandbox LLC
 
@@ -19,59 +19,64 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
 #include <Wirefree.h>
+#include <Client.h>
 
-WIFI_PROFILE w_prof = { "diysandbox",  /* SSID */
-                        "12345678"    /* WPA/WPA2 passphrase */
+WIFI_PROFILE w_prof = { "Cisco32371",       /* SSID */
+                        "12345678" ,        /* WPA/WPA2 passphrase */
+                        NULL,               /* Set for DHCP */
+                        NULL,
+                        NULL
                       };
+
+String server = "74.125.224.83"; // Google
+
+// Initialize the Ethernet client library
+// with the IP address and port of the server 
+// that you want to connect to (port 80 is default for HTTP):
+Client client(server, 80);
 
 void parseRxData(String data)
 {
-  if (data.startsWith("?TIME:", 1)) {
-    // send response
-    Wireless.sendResponse(data.substring(7));
-  }
 }
 
 void setup()
 {
-  // setup LEDs
-  pinMode(3, OUTPUT);
-  digitalWrite(3, LOW);
-
-  // connect to AP
+  // connect to AP & start server
   Wireless.begin(&w_prof, &parseRxData);
-
-  // open socket connection
-  Wireless.socketOpen("test-server.com", "12345");
-
-  // turn on green LED
-  digitalWrite(3, HIGH);
   
-  Wireless.sendDeviceID();
+  // if you get a connection, report back via serial:
+  if (client.connect()) {
+    Serial.println("connection Success..");
+    
+    // Make a HTTP request:
+    client.println("GET /search?q=arduino HTTP/1.0\r\n\r\n");
+  } 
+  else {
+    // kf you didn't get a connection to the server:
+    Serial.println("connection failed..");
+  }
+    
+//  delay(1000);
 }
 
 void loop()
 {
-  if (Wireless.connected()) {
-    Wireless.process();
-
-    delay(1000);
-
-    Wireless.sendDeviceID();
-  } else {
-    // turn off green LED
-    digitalWrite(3, LOW);
-    
-    // connect to AP
-    Wireless.begin(&w_prof, &parseRxData);
-
-    // open socket connection
-    Wireless.socketOpen("test-server.com", "12345");
-
-    // turn on green LED
-    digitalWrite(3, HIGH);
-    
-    Wireless.sendDeviceID();
+  // if there are incoming bytes available 
+  // from the server, read them and print them:
+  if (client.available()) {
+    char c = client.read();
+      // Uncomment if you need to see the response in the serial monitor
+ //   Serial.print(c);
   }
-}
 
+  // if the server's disconnected, stop the client:
+  if (!client.connected()) {
+    Serial.println("disconnecting.");
+    client.stop();
+
+    // do nothing forevermore:
+    for(;;)
+      ;
+  }  
+
+}

@@ -29,10 +29,10 @@ class Client : public Stream {
 public:
   Client();
   Client(uint8_t);
-  //Client(uint8_t *, uint16_t);
+  Client(String, uint16_t);
 
   uint8_t status();
-
+  uint8_t connect();
 
   //uint8_t connect();
   virtual void write(uint8_t);
@@ -45,6 +45,8 @@ public:
   operator bool();
   uint8_t connected();
   void stop();
+  void startDataTx();
+  void stopDataTx();
 #if 0
   uint8_t operator==(int);
   uint8_t operator!=(int);
@@ -55,8 +57,8 @@ public:
 private:
   static uint16_t _srcport;
   uint8_t _sock;
-  uint8_t *_ip;
   uint16_t _port;
+	String _ip;
 };
 
 #endif // _client_h_
